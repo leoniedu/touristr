@@ -1,0 +1,172 @@
+---
+title: "sem_visto"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{sem_visto}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(touristr)
+library(dplyr)
+library(ggplot2)
+
+library(countries)
+
+
+pastee <- function(x) {
+  if (length(x)==1) {
+    x
+  } else if (length(x)==2) {
+    paste(x[1], " e ",x[2], sep="")
+  } else if (length(x)>2) {
+    paste(paste(x[1:(length(x)-1)], collapse=", "), " e ", x[length(x)], sep="")
+  }
+}
+
+```
+
+```{r}
+sem_visto <- i_tourism_br%>%filter(country_code%in%c(68,122,14,38))%>%distinct(pais, country_code, iso3)%>%
+  arrange(pais)%>%
+  mutate(data_inicio=as.Date("2019-06-17"))
+```
+
+O governo Bolsonaro (2019-2022) isentou de visto os turistas com passaporte dos seguintes países: `r pastee(sem_visto$pais)` a partir de `r format(sem_visto$data_inicio[1], "%d/%m/%y")`. Na base de dados i_tourism_br, os códigos desses países são `r pastee(sem_visto$country_code)`.
+
+
+```{r}
+library(tidysynth)
+
+min_date <- as.Date("2010-01-01")
+n_countries <- 30
+
+
+rex_brazil <- rex%>%
+  filter(iso3=="BRA")%>%
+  transmute(iso3_comp=iso3, rex_bra=rex, year)%>%
+  left_join(rex, by="year")%>%
+  mutate(rel_rex=rex_bra/rex)%>%
+  filter(year>=lubridate::year(min_date), year<=2022)%>%
+  group_by(iso3)%>%
+  filter(!any(is.na(rel_rex)))
+
+top_countries <- i_tourism_br %>%
+  filter(date>=min_date)%>%
+  ## só os que tem distância
+  semi_join(distance_brazil, by="iso3")%>%
+  #semi_join(rex_brazil, by="iso3")%>%
+  group_by(country_code, pais, iso3)%>%
+  summarise(arrivals=sum(arrivals, na.rm = TRUE))%>%
+  arrange(desc(arrivals))%>%
+  head(n_countries)%>%
+  ungroup
+
+i_tourism_br_f_0 <- i_tourism_br%>%
+  filter(country_code%in%top_countries$country_code | country_code%in%sem_visto$country_code)%>%
+  filter(date>=min_date)
+library(slider)
+total_by_sem_visto <- i_tourism_br_f_0%>%
+  mutate(sem_visto=iso3%in%sem_visto$iso3)%>%
+  ## agrupa por ano
+  group_by(date, sem_visto)%>%
+  summarise(arrivals=sum(arrivals,na.rm=TRUE))%>%
+  group_by(sem_visto)%>%
+  mutate(arrivals_runsum=slide_index_dbl(.i = date, .f = sum, .before=months(11), .x=arrivals, .complete = TRUE))%>%
+  mutate(arrivals_runsum_i=arrivals_runsum[date==as.Date("2018-12-01")])%>%
+  mutate(i_2018=arrivals_runsum/arrivals_runsum_i*100,
+         d_2018=arrivals_runsum-arrivals_runsum_i
+         )
+
+## index 2018 (12 meses) =100
+p <- ggplot(aes(x=date, y=i_2018, color=sem_visto), data=total_by_sem_visto) +
+  geom_line() +
+  #geom_vline(xintercept=c(2014,2016), linetype=2, color="orange") +
+  geom_vline(xintercept=as.Date("2019-07-01"), linetype=2)
+p #+ scale_y_log10()
+p +
+  coord_cartesian(xlim = as.Date(c("2018-01-01", "2020-01-01")))
+p +
+  coord_cartesian(xlim = as.Date(c("2022-01-01", "2023-12-01")))
+
+
+
+
+i_tourism_br_f <- i_tourism_br_f_0%>%
+  ## agrupa por ano
+  group_by(year=lubridate::year(date), pais, country_code, iso3)%>%
+  summarise(arrivals=sum(arrivals,na.rm=TRUE))%>%
+  left_join(distance_brazil)%>%
+  left_join(rex_brazil, by=c("year", "iso3"))
+
+  
+i <- 4
+
+
+i_tourism_now <- i_tourism_br_f %>%
+  ungroup%>%
+  filter((country_code==sem_visto$country_code[i])|(!country_code%in%sem_visto$country_code))
+
+sem_visto_out_0 <- i_tourism_now%>%
+  # initial the synthetic control object
+  synthetic_control(outcome = arrivals, # outcome
+                    unit = pais, # unit index in the panel data
+                    time = year, # time index in the panel data
+                    i_unit = sem_visto$pais[i], # unit where the intervention occurred
+                    i_time = 2019 # time period when the intervention occurred
+                    , generate_placebos=TRUE # generate placebo synthetic controls (for inference)
+                    ) 
+
+sem_visto_out <- sem_visto_out_0%>%
+  # Generate the aggregate predictors used to fit the weights
+  generate_predictor(dist2brazil = mean(dist_brazil))%>%
+  #generate_predictor(time_window=2015:2018, rex_brazil = mean(rel_rex, na.rm=TRUE))%>%
+  # generate_predictor(rex_brazil = rel_rex, time_window=2018)%>%
+  # generate_predictor(time_window=2002,
+  #                    arrivals_2002 = arrivals)%>%
+  # generate_predictor(time_window=2006,
+  #                    arrivals_2006 = arrivals)%>%
+  generate_predictor(time_window=2010,
+                     arrivals_2010 = arrivals)%>%
+  # generate_predictor(time_window=2012,
+  #                    arrivals_2012 = arrivals)%>%
+  generate_predictor(time_window=2015,
+                      arrivals_2015 = arrivals)%>%
+  generate_predictor(time_window=2017,
+                     arrivals_2017 = arrivals)%>%
+  generate_predictor(time_window=2018,
+                     arrivals_2018 = arrivals)%>%
+  
+  # Generate the fitted weights for the synthetic control
+  generate_weights(
+    #optimization_window =2012:2018,
+    optimization_window =c(2010:2013,2015,2017,2018),
+    Margin.ipop=.02,Sigf.ipop=7,Bound.ipop=6) %>%
+  # Generate the synthetic control
+  generate_control()
+#sem_visto_out%>%grab_predictors(type="treated")
+#sem_visto_out%>%grab_predictors(type="controls")%>%View
+(sem_visto_out$.predictor_weights[[1]])
+(sem_visto_out$.unit_weights[[1]])%>%arrange(-weight)
+grab_balance_table(sem_visto_out)
+library(ggplot2)
+sem_visto$pais[i]
+sem_visto_out %>% plot_trends(time_window =min(i_tourism_br_f$year):2023)  + ggplot2::labs(subtitle=sem_visto$pais[i]) + scale_y_continuous(limits=c(0,NA))
+
+
+sem_visto_out %>% plot_differences(time_window =min(i_tourism_br_f$year):2023)  + ggplot2::labs(subtitle=sem_visto$pais[i]) 
+
+sem_visto_out%>%plot_placebos(time_window = 2015:2022)
+
+
+```
+
+

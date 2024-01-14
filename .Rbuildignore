@@ -3,3 +3,8 @@
 ^README\.Rmd$
 ^\.github$
 ^codecov\.yml$
+^CODE_OF_CONDUCT\.md$
+^touristr\.Rproj$
+^\.Rproj\.user$
+^data-raw$
+^\.httr-oauth$

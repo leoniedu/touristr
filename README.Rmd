@@ -17,7 +17,6 @@ knitr::opts_chunk$set(
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/leoniedu/touristr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/leoniedu/touristr/actions/workflows/R-CMD-check.yaml)
-[![Codecov test coverage](https://codecov.io/gh/leoniedu/touristr/branch/main/graph/badge.svg)](https://app.codecov.io/gh/leoniedu/touristr?branch=main)
 <!-- badges: end -->
 
 The goal of touristr is to ...
@@ -30,10 +29,6 @@ You can install the development version of touristr from [GitHub](https://github
 # install.packages("devtools")
 devtools::install_github("leoniedu/touristr")
 ```
-
-## Documentation
-
-Full documentation website on: https://leoniedu.github.io/touristr
 
 ## Example
 
